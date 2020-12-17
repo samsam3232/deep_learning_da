@@ -30,7 +30,7 @@ def data_discr(source, target, batch_size):
 
     return mixed_dis, mixed_class
 
-def get_transforms(ds, source, target):
+def get_transforms():
 
     train_transform = get_transform_train()
     val_tranform = get_transform_val()
@@ -63,12 +63,17 @@ def get_transform_val():
     return val_tranform
 
 
-def get_data(ds, source, target, data_dir, batch_size, mixed = False):
+def get_data(ds, source, target, data_dir, batch_size, setup = "one_ds"):
 
-    train_source_transform, train_target_transform, val_tranform = get_transforms(ds, source, target)
-    train_source_loader, train_target_loader, val_source_loader = FILES[ds].get_loaders_tf(source, target, f"{data_dir}/data/", train_source_transform,
-                                                            train_target_transform, val_tranform, batch_size)
-    if mixed:
+    train_transform, val_tranform = get_transforms()
+    train_source_loader, train_target_loader, val_source_loader, val_target_loader = FILES[ds].get_loaders_tf(source, target, f"{data_dir}/data/",
+                                                                                           train_transform, val_tranform, batch_size)
+    if setup == "one_ds":
+        return train_source_loader, val_source_loader, val_target_loader
+
+    if setup == "mixed":
         mixed_disc, mixed_class = data_discr(train_source_loader, train_target_loader, batch_size)
         return mixed_disc, mixed_class, val_source_loader
-    return train_source_loader, train_target_loader, val_source_loader
+
+    else:
+        return train_source_loader, train_target_loader, val_source_loader, val_target_loader
