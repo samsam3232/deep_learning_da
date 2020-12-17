@@ -14,11 +14,15 @@ def get_vgg(size, pretrained):
 
     return model
 
-def freeze_features(model):
+def freeze_features(model, all_features = False):
 
-    for param in model.features.parameters():
-        param.requires_grad = False
-
+    if all_features:
+        for param in model.features.parameters():
+            param.requires_grad = False
+    else:
+        for name, param in model.name_parameters():
+            if int(name.split('.')[1]) > 13:
+                param.requires_grad = False
     return model
 
 def classifier_init(model):
