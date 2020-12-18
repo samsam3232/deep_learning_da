@@ -24,6 +24,7 @@ sns.set_style('darkgrid')
 
 
 def train(args, ITE=0):
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     reinit = True if args.pt == "reinit" else False
 
@@ -131,89 +132,93 @@ def train(args, ITE=0):
                     f'Source_accuracy: {accuracy_source:.2f}% Best source accuracy: {best_accuracy_source:.2f}%'
                     f'Target_accuracy: {accuracy_target:.2f}% Best target accuracy: {best_accuracy_target:.2f}%')
 
-            bestacc[_ite] = best_accuracy
-            bestacc_source[_ite] = best_accuracy_source
-            bestacc_target[_ite] = best_accuracy_target
 
             # Plotting Loss (Training), Accuracy (Testing), Iteration Curve
             # NOTE Loss is computed for every iteration while Accuracy is computed only for every {args.valid_freq} iterations. Therefore Accuracy saved is constant during the uncomputed iterations.
             # NOTE Normalized the accuracy to [0,100] for ease of plotting.
-            plt.plot(np.arange(1, (args.end_iter) + 1),
-                     100 * (all_loss - np.min(all_loss)) / np.ptp(all_loss).astype(float), c="blue", label="Loss")
-            plt.plot(np.arange(1, (args.end_iter) + 1), all_accuracy, c="red", label="Accuracy")
-            plt.title(f"Loss Vs Accuracy Vs Iterations ({args.ds},vgg_like_1)")
-            plt.xlabel("Iterations")
-            plt.ylabel("Loss and Accuracy")
-            plt.legend()
-            plt.grid(color="gray")
-            utils.checkdir(f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/")
-            plt.savefig(
-                f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/{args.pt}_LossVsAccuracy_{comp1}_{_ite}.png",
-                dpi=1200)
-            plt.close()
+        bestacc[_ite] = best_accuracy
+        bestacc_source[_ite] = best_accuracy_source
+        bestacc_target[_ite] = best_accuracy_target
 
-            plt.plot(np.arange(1, (args.end_iter) + 1), all_accuracy_source, c="blue", label="Source accuracy")
-            plt.plot(np.arange(1, (args.end_iter) + 1), all_accuracy_target, c="red", label="Target_accuracy")
-            plt.title(f"Source accuracy Vs Target_accuracy Vs Iterations ({args.ds},vgg_like_1)")
-            plt.xlabel("Iterations")
-            plt.ylabel("Source accuracy and Target_accuracy")
-            plt.legend()
-            plt.grid(color="gray")
-            utils.checkdir(f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/")
-            plt.savefig(
-                f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/{args.pt}_SourceVSTarget_{comp1}_{_ite}.png",
-                dpi=1200)
-            plt.close()
-
-            # Dump Plot values
-            utils.checkdir(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/")
-            all_loss.dump(
-                f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_all_loss_{comp1}_{_ite}.dat")
-            all_accuracy.dump(
-                f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_all_accuracy_{comp1}_{_ite}.dat")
-            all_accuracy_source.dump(
-                f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_all_accuracy_source_{comp1}_{_ite}.dat")
-            all_accuracy_target.dump(
-                f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_all_accuracy_target_{comp1}_{_ite}.dat")
-
-            # Dumping mask
-            utils.checkdir(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/")
-            with open(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_mask_{comp1}_{_ite}.pkl",
-                      'wb') as fp:
-                pickle.dump(mask, fp)
-
-            # Making variables into 0
-            best_accuracy = 0
-            best_accuracy_source = 0
-            best_accuracy_target = 0
-            all_loss = np.zeros(args.end_iter, float)
-            all_accuracy = np.zeros(args.end_iter, float)
-            all_accuracy_source = np.zeros(args.end_iter, float)
-            all_accuracy_target = np.zeros(args.end_iter, float)
-
-            # Dumping Values for Plotting
-        utils.checkdir(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/")
-        comp.dump(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_compression.dat")
-        bestacc.dump(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_bestaccuracy.dat")
-        bestacc_source.dump(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_bestaccuracy_source.dat")
-        bestacc_target.dump(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_bestaccuracy_target.dat")
-
-        # Plotting
-        a = np.arange(args.prune_iterations)
-        plt.plot(a, bestacc, c="blue", label="Winning tickets global accuracy")
-        plt.plot(a, bestacc_source, c="red", label="Winning ticket source accuracy")
-        plt.plot(a, bestacc_target, c="green", label="Winning ticket target accuracy")
-        plt.title(f"Test Accuracies vs Unpruned Weights Percentage ({args.ds},{args.model})")
-        plt.xlabel("Unpruned Weights Percentage")
-        plt.ylabel("test accuracies")
-        plt.xticks(a, comp, rotation="vertical")
-        plt.ylim(0, 100)
+        # Plotting Loss (Training), Accuracy (Testing), Iteration Curve
+        # NOTE Loss is computed for every iteration while Accuracy is computed only for every {args.valid_freq} iterations. Therefore Accuracy saved is constant during the uncomputed iterations.
+        # NOTE Normalized the accuracy to [0,100] for ease of plotting.
+        plt.plot(np.arange(1, (args.end_iter) + 1),
+                 100 * (all_loss - np.min(all_loss)) / np.ptp(all_loss).astype(float), c="blue", label="Loss")
+        plt.plot(np.arange(1, (args.end_iter) + 1), all_accuracy, c="red", label="Accuracy")
+        plt.title(f"Loss Vs Accuracy Vs Iterations ({args.ds},vgg_like_1)")
+        plt.xlabel("Iterations")
+        plt.ylabel("Loss and Accuracy")
         plt.legend()
         plt.grid(color="gray")
         utils.checkdir(f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/")
-        plt.savefig(f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/{args.pt}_AccuraciesVsWeights.png",
-                    dpi=1200)
+        plt.savefig(
+            f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/{args.pt}_LossVsAccuracy_{comp1}_{_ite}.png",
+            dpi=1200)
         plt.close()
+
+        plt.plot(np.arange(1, (args.end_iter) + 1), all_accuracy_source, c="blue", label="Source accuracy")
+        plt.plot(np.arange(1, (args.end_iter) + 1), all_accuracy_target, c="red", label="Target_accuracy")
+        plt.title(f"Source accuracy Vs Target_accuracy Vs Iterations ({args.ds},vgg_like_1)")
+        plt.xlabel("Iterations")
+        plt.ylabel("Source accuracy and Target_accuracy")
+        plt.legend()
+        plt.grid(color="gray")
+        utils.checkdir(f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/")
+        plt.savefig(
+            f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/{args.pt}_SourceVSTarget_{comp1}_{_ite}.png",
+            dpi=1200)
+        plt.close()
+
+        # Dump Plot values
+        utils.checkdir(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/")
+        all_loss.dump(
+            f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_all_loss_{comp1}_{_ite}.dat")
+        all_accuracy.dump(
+            f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_all_accuracy_{comp1}_{_ite}.dat")
+        all_accuracy_source.dump(
+            f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_all_accuracy_source_{comp1}_{_ite}.dat")
+        all_accuracy_target.dump(
+            f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_all_accuracy_target_{comp1}_{_ite}.dat")
+
+        # Dumping mask
+        utils.checkdir(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/")
+        with open(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_mask_{comp1}_{_ite}.pkl",
+                  'wb') as fp:
+            pickle.dump(mask, fp)
+
+        # Making variables into 0
+        best_accuracy = 0
+        best_accuracy_source = 0
+        best_accuracy_target = 0
+        all_loss = np.zeros(args.end_iter, float)
+        all_accuracy = np.zeros(args.end_iter, float)
+        all_accuracy_source = np.zeros(args.end_iter, float)
+        all_accuracy_target = np.zeros(args.end_iter, float)
+
+            # Dumping Values for Plotting
+    utils.checkdir(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/")
+    comp.dump(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_compression.dat")
+    bestacc.dump(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_bestaccuracy.dat")
+    bestacc_source.dump(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_bestaccuracy_source.dat")
+    bestacc_target.dump(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_bestaccuracy_target.dat")
+
+    # Plotting
+    a = np.arange(args.prune_iterations)
+    plt.plot(a, bestacc, c="blue", label="Winning tickets global accuracy")
+    plt.plot(a, bestacc_source, c="red", label="Winning ticket source accuracy")
+    plt.plot(a, bestacc_target, c="green", label="Winning ticket target accuracy")
+    plt.title(f"Test Accuracies vs Unpruned Weights Percentage ({args.ds},{args.model})")
+    plt.xlabel("Unpruned Weights Percentage")
+    plt.ylabel("test accuracies")
+    plt.xticks(a, comp, rotation="vertical")
+    plt.ylim(0, 100)
+    plt.legend()
+    plt.grid(color="gray")
+    utils.checkdir(f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/")
+    plt.savefig(f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/{args.pt}_AccuraciesVsWeights.png",
+    dpi=1200)
+    plt.close()
 
 
 def weight_init(m):
