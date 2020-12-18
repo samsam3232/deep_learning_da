@@ -57,36 +57,36 @@ class CCN_Model(nn.Module):
         super(CCN_Model, self).__init__()
 
         self.features = nn.Sequential()
-        self.features.add_module('f_conv1', nn.Conv2d(3, 64, kernel_size=3, padding=1))
+        self.features.add_module('f_conv1', nn.Conv2d(3, 30, kernel_size=3, padding=1))
         if batch_layer:
-            self.features.add_module('f_norm1', nn.BatchNorm2d(64))
+            self.features.add_module('f_norm1', nn.BatchNorm2d(30))
         self.features.add_module('f_relu1', nn.ReLU(True))
         self.features.add_module('f_pool1', nn.MaxPool2d(kernel_size=4, stride=4))
-        self.features.add_module('f_conv2', nn.Conv2d(64, 64, kernel_size=3, padding=1))
+        self.features.add_module('f_conv2', nn.Conv2d(30, 30, kernel_size=3, padding=1))
         if batch_layer:
-            self.features.add_module('f_norm2', nn.BatchNorm2d(64))
+            self.features.add_module('f_norm2', nn.BatchNorm2d(30))
         self.features.add_module('f_relu2', nn.ReLU(True))
         self.features.add_module('f_pool2', nn.MaxPool2d(kernel_size=4, stride=4))
         self.features.add_module('f_maxpool', nn.MaxPool2d(kernel_size=4, stride=4))
 
         self.class_classifier = nn.Sequential()
-        self.class_classifier.add_module('c_fc1', nn.Linear(64 * 3 * 3, 290))
+        self.class_classifier.add_module('c_fc1', nn.Linear(30 * 2 * 2, 100))
         if batch_layer:
-            self.class_classifier.add_module('c_bn1', nn.BatchNorm1d(290))
+            self.class_classifier.add_module('c_bn1', nn.BatchNorm1d(100))
         self.class_classifier.add_module('c_relu1', nn.ReLU(True))
         self.class_classifier.add_module('c_drop1', nn.Dropout2d())
-        self.class_classifier.add_module('c_fc2', nn.Linear(290, 100))
+        self.class_classifier.add_module('c_fc2', nn.Linear(100, 50))
         if batch_layer:
-            self.class_classifier.add_module('c_bn2', nn.BatchNorm1d(100))
+            self.class_classifier.add_module('c_bn2', nn.BatchNorm1d(50))
         self.class_classifier.add_module('c_relu2', nn.ReLU(True))
-        self.class_classifier.add_module('c_fc3', nn.Linear(100, 10))
+        self.class_classifier.add_module('c_fc3', nn.Linear(50, 10))
 
         self.domain_classifier = nn.Sequential()
-        self.domain_classifier.add_module('d_fc1', nn.Linear(64*3*3, 100))
+        self.domain_classifier.add_module('d_fc1', nn.Linear(30*2*2, 50))
         if batch_layer:
-            self.domain_classifier.add_module('d_bn1', nn.BatchNorm1d(100))
+            self.domain_classifier.add_module('d_bn1', nn.BatchNorm1d(50))
         self.domain_classifier.add_module('d_relu1', nn.ReLU(True))
-        self.domain_classifier.add_module('d_fc2', nn.Linear(100, 2))
+        self.domain_classifier.add_module('d_fc2', nn.Linear(50, 2))
 
 
     def forward(self, input, alpha):
@@ -98,7 +98,7 @@ class CCN_Model(nn.Module):
             if ("conv" in m):
                 activations[m] = [feats, feats_curr]
             feats = feats_curr
-        feats = feats.view(-1, 64*3*3)
+        feats = feats.view(-1, 30*2*2)
         reversed_feats = ReverseLayerF.apply(feats, alpha)
         class_pred = self.class_classifier(feats)
         domain_pred = self.domain_classifier(reversed_feats)

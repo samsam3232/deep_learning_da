@@ -49,7 +49,7 @@ def train(args, ITE=0):
 
     get_masks(model)
 
-    optimizer = optim.Adam(model.parameters(), weight_decay=10 ** -4)
+    optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
     criterion = nn.CrossEntropyLoss()
 
     best_accuracy = 0
@@ -84,10 +84,10 @@ def train(args, ITE=0):
                 step = 0
             else:
                 original_initialization(mask, initial_state_dict)
-            optimizer = optim.Adam(model.parameters(), weight_decay=10 ** -4)
+            optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
         else:
             original_initialization(mask, initial_state_dict)
-            optimizer = optim.Adam(model.parameters(), weight_decay=10 ** -4)
+            optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
 
         print(f"\n--- Pruning Level [{ITE}:{_ite}/{ITERATION}]: ---")
 
