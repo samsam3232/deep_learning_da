@@ -3,10 +3,6 @@ import torchvision.transforms as transforms
 import dalib.vision.datasets as ds
 from datasets import OfficeCaltech as OC
 
-ME_STDS = {"OfficeCaltech" : {"A" : {"mean" : [0.6987, 0.6951, 0.6977], "std" : [0.2941, 0.2957, 0.2939]},
-                              "W" : {"mean" : [0.5698, 0.5832, 0.5875], "std" : [0.2480, 0.2538, 0.2524]},
-                              "D" : {"mean" : [0.3697, 0.3519, 0.3124], "std" : [0.1795, 0.1690, 0.1689]},
-                              "C" : {"mean" : [0.5810, 0.5704, 0.5721], "std" : [0.2710, 0.2689, 0.2648]}}}
 
 FILES  = {"OfficeCaltech" : OC}
 

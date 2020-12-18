@@ -1,16 +1,13 @@
 import argparse
 import os
 import training_setup.one_dataset as one_dataset
+import training_setup.if_dann as if_dann
 
-TRAINING_SETUP = {"one_ds" : one_dataset}
+TRAINING_SETUP = {"one_ds" : one_dataset, "if_dann" : if_dann}
 
 def main(args):
 
-    try:
-        TRAINING_SETUP[args.setup].train(args, ITE=1)
-    except:
-        print("Training failed")
-
+    TRAINING_SETUP[args.setup].train(args, ITE=1)
     return 1
 
 if __name__ == "__main__":

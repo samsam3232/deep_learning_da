@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import argparse
 import models.vgg_like as vgg_like
 import seaborn as sns
 import torch.nn.init as init
@@ -23,44 +22,47 @@ os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 # Plotting Style
 sns.set_style('darkgrid')
 
-def main(args, ITE=0):
+def train(args, ITE=0):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     reinit = True if args.pt == "reinit" else False
     
     date = datetime.now().strftime('%d_%m_%Y_%H:%M:%S').replace(' ' , '_')
-    train_source_loader, train_target_loader, val_source_loader = data_utils.get_data(args.ds, args.source, args.target, args.data_dir, args.batch_size, False)
+    train_source_loader, train_target_loader, val_source_loader, val_target_loader = data_utils.get_data(args.ds,
+                                                        args.source, args.target, args.data_dir, args.batch_size, "if_dann")
 
     global model
 
-    model = models.vgg_like.CCN_Model()
+    model_getter = models.vgg_like.VggGetter("if_dann")
+    model = model_getter.get_model()
     model.to(device)
     model.apply(weight_init)
 
     initial_state_dict = copy.deepcopy(model.state_dict())
-    utils.checkdir(f"{args.data_dir}/saves/vgg_like_1/{date}/{args.ds}/")
-    torch.save(model, f"{args.data_dir}/saves/vgg_like_1/{date}/{args.ds}/initial_state_dict_{args.pt}.pth.tar")
+    utils.checkdir(f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/")
+    torch.save(model, f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}.pth.tar")
 
     get_masks(model)
 
-    optimizer = optim.Adam(model.parameters(), weight_decay=10**(-3))
-    class_loss = nn.NLLLoss()
-    disc_loss = nn.NLLLoss()
-
-    for name, param in model.named_parameters():
-        print(name, param.size())
-
+    optimizer = optim.Adam(model.parameters(), weight_decay=10**-4)
+    criterion = nn.CrossEntropyLoss()
 
     best_accuracy = 0
+    best_accuracy_source = 0
+    best_accuracy_target = 0
     ITERATION = args.prune_iterations
-    comp = np.zeros(ITERATION,float)
-    bestacc = np.zeros(ITERATION,float)
+    comp = np.zeros(ITERATION, float)
+    bestacc = np.zeros(ITERATION, float)
+    bestacc_source = np.zeros(ITERATION, float)
+    bestacc_target = np.zeros(ITERATION, float)
     step = 0
-    all_loss = np.zeros(args.end_iter,float)
-    all_accuracy = np.zeros(args.end_iter,float)
+    all_loss = np.zeros(args.end_iter, float)
+    all_accuracy = np.zeros(args.end_iter, float)
+    all_accuracy_source = np.zeros(args.end_iter, float)
+    all_accuracy_target = np.zeros(args.end_iter, float)
 
     if args.lotter:
-        model.load_state_dict(torch.load(f"{args.data_dir}/saves/vgg_like_1/{date}/{args.ds}/initial_state_dict_{args.pt}.pth.tar"))
+        model.load_state_dict(torch.load(f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}.pth.tar"))
 
     for _ite in range(args.start_iter, ITERATION):
         if _ite != 0 and (((_ite - args.start_iter) % args.iter_to_prune) == 0) and not args.lotter:
@@ -76,10 +78,10 @@ def main(args, ITE=0):
                 step = 0
             else:
                 original_initialization(mask, initial_state_dict)
-            optimizer = optim.Adam(model.parameters(), lr = args.lr, weight_decay=10**(-3))
+            optimizer = optim.Adam(model.parameters(), weight_decay=10 ** -4)
         else:
             original_initialization(mask, initial_state_dict)
-            optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=10 ** (-3))
+            optimizer = optim.Adam(model.parameters(), weight_decay=10 ** -4)
 
         print(f"\n--- Pruning Level [{ITE}:{_ite}/{ITERATION}]: ---")
 
@@ -93,80 +95,119 @@ def main(args, ITE=0):
             alpha = ((iter_ ) + (_ite * iter_))
             # Frequency for Testing
             if iter_ % args.valid_freq == 0:
-                accuracy = test(model, val_source_loader, class_loss)
+                accuracy_source, accuracy_target = test(model, val_source_loader, val_target_loader, args.batch_size, criterion)
 
                 # Save Weights
-                if accuracy > best_accuracy:
-                    best_accuracy = accuracy
-                    utils.checkdir(f"{args.data_dir}/saves/vgg_like_1/{date}/{args.ds}/")
+                if (0.4 * accuracy_source + 0.6 * accuracy_target) > best_accuracy:
+                    best_accuracy = (0.4 * accuracy_source + 0.6 * accuracy_target)
+                    utils.checkdir(f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/")
                     torch.save(model,
-                               f"{args.data_dir}/saves/vgg_like_1/{date}/{args.ds}/initial_state_dict_{args.pt}_{_ite}.pth.tar")
+                                   f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}_{_ite}.pth.tar")
+
+                if accuracy_source > best_accuracy_source:
+                    best_accuracy_source = accuracy_source
+
+                if accuracy_target > best_accuracy_target:
+                    best_accuracy_target = accuracy_target
 
             # Training
-            loss, activation_source, activation_target = train(model, train_source_loader, train_target_loader, optimizer, class_loss, disc_loss, alpha)
+            loss, activation_source, activation_target = train_iter(model, train_source_loader, train_target_loader,
+                                                               optimizer, criterion, alpha, args.batch_size)
             all_loss[iter_] = loss
-            all_accuracy[iter_] = accuracy
+            all_accuracy[iter_] = (0.4 * accuracy_source + 0.6 * accuracy_target)
+            all_accuracy_source[iter_] = accuracy_source
+            all_accuracy_target[iter_] = accuracy_target
 
             # Frequency for Printing Accuracy and Loss
             if iter_ % args.print_freq == 0:
                 pbar.set_description(
-                    f'Train Epoch: {iter_}/{args.end_iter} Loss: {loss:.6f} Accuracy: {accuracy:.2f}% Best Accuracy: {best_accuracy:.2f}%')
+                        f'Train Epoch: {iter_}/{args.end_iter} Loss: {loss:.6f} Accuracy: {(0.4 * accuracy_source + 0.6 * accuracy_target):.2f}% Best Accuracy: {best_accuracy:.2f}%'
+                        f'Source_accuracy: {accuracy_source:.2f}% Best Accuracy: {best_accuracy_source:.2f}%'
+                        f'Source_accuracy: {accuracy_target:.2f}% Best Accuracy: {best_accuracy_target:.2f}%')
 
-        bestacc[_ite] = best_accuracy
+            bestacc[_ite] = best_accuracy
+            bestacc_source[_ite] = best_accuracy_source
+            bestacc_target[_ite] = best_accuracy_target
 
-        # Plotting Loss (Training), Accuracy (Testing), Iteration Curve
-        # NOTE Loss is computed for every iteration while Accuracy is computed only for every {args.valid_freq} iterations. Therefore Accuracy saved is constant during the uncomputed iterations.
-        # NOTE Normalized the accuracy to [0,100] for ease of plotting.
-        plt.plot(np.arange(1, (args.end_iter) + 1),
-                 100 * (all_loss - np.min(all_loss)) / np.ptp(all_loss).astype(float), c="blue", label="Loss")
-        plt.plot(np.arange(1, (args.end_iter) + 1), all_accuracy, c="red", label="Accuracy")
-        plt.title(f"Loss Vs Accuracy Vs Iterations ({args.ds},vgg_like_1)")
-        plt.xlabel("Iterations")
-        plt.ylabel("Loss and Accuracy")
+            # Plotting Loss (Training), Accuracy (Testing), Iteration Curve
+            # NOTE Loss is computed for every iteration while Accuracy is computed only for every {args.valid_freq} iterations. Therefore Accuracy saved is constant during the uncomputed iterations.
+            # NOTE Normalized the accuracy to [0,100] for ease of plotting.
+            plt.plot(np.arange(1, (args.end_iter) + 1),
+                     100 * (all_loss - np.min(all_loss)) / np.ptp(all_loss).astype(float), c="blue", label="Loss")
+            plt.plot(np.arange(1, (args.end_iter) + 1), all_accuracy, c="red", label="Accuracy")
+            plt.title(f"Loss Vs Accuracy Vs Iterations ({args.ds},vgg_like_1)")
+            plt.xlabel("Iterations")
+            plt.ylabel("Loss and Accuracy")
+            plt.legend()
+            plt.grid(color="gray")
+            utils.checkdir(f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/")
+            plt.savefig(
+                f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/{args.pt}_LossVsAccuracy_{comp1}_{_ite}.png",
+                dpi=1200)
+            plt.close()
+
+            plt.plot(np.arange(1, (args.end_iter) + 1), all_accuracy_source, c="blue", label="Source accuracy")
+            plt.plot(np.arange(1, (args.end_iter) + 1), all_accuracy_target, c="red", label="Target_accuracy")
+            plt.title(f"Source accuracy Vs Target_accuracy Vs Iterations ({args.ds},vgg_like_1)")
+            plt.xlabel("Iterations")
+            plt.ylabel("Source accuracy and Target_accuracy")
+            plt.legend()
+            plt.grid(color="gray")
+            utils.checkdir(f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/")
+            plt.savefig(
+                f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/{args.pt}_SourceVSTarget_{comp1}_{_ite}.png",
+                dpi=1200)
+            plt.close()
+
+            # Dump Plot values
+            utils.checkdir(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/")
+            all_loss.dump(
+                f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_all_loss_{comp1}_{_ite}.dat")
+            all_accuracy.dump(
+                f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_all_accuracy_{comp1}_{_ite}.dat")
+            all_accuracy_source.dump(
+                f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_all_accuracy_source_{comp1}_{_ite}.dat")
+            all_accuracy_target.dump(
+                f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_all_accuracy_target_{comp1}_{_ite}.dat")
+
+            # Dumping mask
+            utils.checkdir(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/")
+            with open(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_mask_{comp1}_{_ite}.pkl",
+                      'wb') as fp:
+                pickle.dump(mask, fp)
+
+            # Making variables into 0
+            best_accuracy = 0
+            best_accuracy_source = 0
+            best_accuracy_target = 0
+            all_loss = np.zeros(args.end_iter, float)
+            all_accuracy = np.zeros(args.end_iter, float)
+            all_accuracy_source = np.zeros(args.end_iter, float)
+            all_accuracy_target = np.zeros(args.end_iter, float)
+
+            # Dumping Values for Plotting
+        utils.checkdir(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/")
+        comp.dump(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_compression.dat")
+        bestacc.dump(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_bestaccuracy.dat")
+        bestacc_source.dump(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_bestaccuracy_source.dat")
+        bestacc_target.dump(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_bestaccuracy_target.dat")
+
+        # Plotting
+        a = np.arange(args.prune_iterations)
+        plt.plot(a, bestacc, c="blue", label="Winning tickets global accuracy")
+        plt.plot(a, bestacc_source, c="red", label="Winning ticket source accuracy")
+        plt.plot(a, bestacc_target, c="green", label="Winning ticket target accuracy")
+        plt.title(f"Test Accuracies vs Unpruned Weights Percentage ({args.ds},{args.model})")
+        plt.xlabel("Unpruned Weights Percentage")
+        plt.ylabel("test accuracies")
+        plt.xticks(a, comp, rotation="vertical")
+        plt.ylim(0, 100)
         plt.legend()
         plt.grid(color="gray")
-        utils.checkdir(f"{args.data_dir}/plots/lt/vgg_like_1/{date}/{args.ds}/")
-        plt.savefig(
-            f"{args.data_dir}/plots/lt/vgg_like_1/{date}/{args.ds}/{args.pt}_LossVsAccuracy_{comp1}_{_ite}.png",
-            dpi=1200)
+        utils.checkdir(f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/")
+        plt.savefig(f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/{args.pt}_AccuraciesVsWeights.png",
+                    dpi=1200)
         plt.close()
-
-        # Dump Plot values
-        utils.checkdir(f"{args.data_dir}/dumps/lt/vgg_like_1/{date}/{args.ds}/")
-        all_loss.dump(f"{args.data_dir}/dumps/lt/vgg_like_1/{date}/{args.ds}/{args.pt}_all_loss_{comp1}_{_ite}.dat")
-        all_accuracy.dump(
-            f"{args.data_dir}/dumps/lt/vgg_like_1/{date}/{args.ds}/{args.pt}_all_accuracy_{comp1}_{_ite}.dat")
-
-        # Dumping mask
-        utils.checkdir(f"{args.data_dir}/dumps/lt/vgg_like_1/{date}/{args.ds}/")
-        with open(f"{args.data_dir}/dumps/lt/vgg_like_1/{date}/{args.ds}/{args.pt}_mask_{comp1}_{_ite}.pkl",
-                  'wb') as fp:
-            pickle.dump(mask, fp)
-
-        # Making variables into 0
-        best_accuracy = 0
-        all_loss = np.zeros(args.end_iter, float)
-        all_accuracy = np.zeros(args.end_iter, float)
-
-    # Dumping Values for Plotting
-    utils.checkdir(f"{args.data_dir}/dumps/lt/vgg_like_1/{date}/{args.ds}/")
-    comp.dump(f"{args.data_dir}/dumps/lt/vgg_like_1/{date}/{args.ds}/{args.pt}_compression.dat")
-    bestacc.dump(f"{args.data_dir}/dumps/lt/vgg_like_1/{date}/{args.ds}/{args.pt}_bestaccuracy.dat")
-
-    # Plotting
-    a = np.arange(args.prune_iterations)
-    plt.plot(a, bestacc, c="blue", label="Winning tickets")
-    plt.title(f"Test Accuracy vs Unpruned Weights Percentage ({args.ds},vgg_like_1)")
-    plt.xlabel("Unpruned Weights Percentage")
-    plt.ylabel("test accuracy")
-    plt.xticks(a, comp, rotation="vertical")
-    plt.ylim(0, 100)
-    plt.legend()
-    plt.grid(color="gray")
-    utils.checkdir(f"{args.data_dir}/plots/lt/vgg_like_1/{date}/{args.ds}/")
-    plt.savefig(f"{args.data_dir}/plots/lt/vgg_like_1/{date}/{args.ds}/{args.pt}_AccuracyVsWeights.png",
-                dpi=1200)
-    plt.close()
 
 
 def weight_init(m):
@@ -302,7 +343,7 @@ def original_initialization(mask_temp, initial_state_dict):
             param.data = initial_state_dict[name]
     step = 0
 
-def train(model, source, target, optimizer, class_loss, disc_loss, alpha):
+def train_iter(model, source, target, optimizer, criterion, alpha, batch_size):
 
     EPS = 1e-6
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -317,11 +358,11 @@ def train(model, source, target, optimizer, class_loss, disc_loss, alpha):
         imgs_source, source_class = imgs_source.to(device), source_class.to(device)
         imgs_target, target_class = imgs_target.to(device), target_class.to(device)
         source_class_pred, source_domain_pred, source_activations_curr = model(imgs_source, alpha)
-        loss_cl_source = class_loss(source_class_pred, source_class)
-        loss_dis_source = disc_loss(source_domain_pred, torch.zeros((args.batch_size), dtype = torch.long))
+        loss_cl_source = criterion(source_class_pred, source_class)
+        loss_dis_source = criterion(source_domain_pred, torch.zeros((batch_size), dtype = torch.long))
 
         _, target_domain_pred, target_activations_curr = model(imgs_target, alpha)
-        loss_dis_target = disc_loss(target_domain_pred, torch.ones((args.batch_size), dtype=torch.long))
+        loss_dis_target = criterion(target_domain_pred, torch.ones((batch_size), dtype=torch.long))
         train_loss = loss_cl_source + loss_dis_source + loss_dis_target
         train_loss.backward()
 
@@ -367,31 +408,3 @@ def test(model, test_loader, criterion):
         accuracy = 100. * correct / len(test_loader.dataset)
     return accuracy
 
-
-if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--lr", default=1.2e-3, type=float, help="Learning rate")
-    parser.add_argument("--batch_size", default=64, type=int)
-    parser.add_argument("--data_dir", type=str)
-    parser.add_argument("--start_iter", default=0, type=int)
-    parser.add_argument("--end_iter", default=100, type=int)
-    parser.add_argument("--print_freq", default=1, type=int)
-    parser.add_argument("--valid_freq", default=1, type=int)
-    parser.add_argument("--pt", default="lt", type=str, help="lt | reinit")
-    parser.add_argument("--gpu", default="0", type=str)
-    parser.add_argument("--ds", default="OfficeCaltech", type=str, help="CaltechOffice | cifar10 | fashionmnist | cifar100")
-    parser.add_argument("--prune_percent", default=10, type=int, help="Pruning percent")
-    parser.add_argument("--prune_iterations", default=20, type=int, help="Pruning iterations count")
-    parser.add_argument("--iter_to_prune", default=1, type=int, help="Prune every ... iterations")
-    parser.add_argument("--lotter", default=False, type=bool)
-    parser.add_argument("--source", default="A", type=str)
-    parser.add_argument("--target", default="C", type=str)
-    args = parser.parse_args()
-
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-
-    main(args, ITE=1)
-
-print('Finished Training')

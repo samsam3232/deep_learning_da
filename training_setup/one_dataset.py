@@ -108,6 +108,8 @@ def train(args, ITE = 0):
             loss = train_iter(model, train_loader, optimizer, class_loss)
             all_loss[iter_] = loss
             all_accuracy[iter_] = (0.4 * accuracy_source + 0.6 * accuracy_target)
+            all_accuracy_source[iter_] = accuracy_source
+            all_accuracy_target[iter_] = accuracy_target
 
                 # Frequency for Printing Accuracy and Loss
             if iter_ % args.print_freq == 0:
@@ -168,6 +170,8 @@ def train(args, ITE = 0):
 
         # Making variables into 0
         best_accuracy = 0
+        best_accuracy_source = 0
+        best_accuracy_target = 0
         all_loss = np.zeros(args.end_iter, float)
         all_accuracy = np.zeros(args.end_iter, float)
         all_accuracy_source = np.zeros(args.end_iter, float)
@@ -309,7 +313,7 @@ def test(model, source, target, batch_size, criterion):
             test_source_loss += criterion(output_source, source_class).item()
             test_target_loss += criterion(output_target, target_class).item()
             pred_source = output_source.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
-            pred_target = output_source.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
+            pred_target = output_target.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
             correct_source += pred_source.eq(source_class.data.view_as(pred_source)).sum().item()
             correct_target += pred_target.eq(target_class.data.view_as(pred_target)).sum().item()
         test_source_loss /= (min(len(source_iter), len(target_iter)) * batch_size)
@@ -318,4 +322,3 @@ def test(model, source, target, batch_size, criterion):
         accuracy_target = 100. * correct_target / (min(len(source_iter), len(target_iter)) * batch_size)
     return accuracy_source, accuracy_target
 
-print('Finished Training')
