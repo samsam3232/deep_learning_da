@@ -122,7 +122,7 @@ class CCN_Model(nn.Module):
 
 class VggGetter:
 
-    SETUPS = {"one_ds" : get_vgg_regular, "if_dann" : CCN_Model.init}
+    SETUPS = {"one_ds" : get_vgg_regular, "if_dann" : CCN_Model}
 
     def __init__(self, setup, **kwargs):
         self.setup = setup

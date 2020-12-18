@@ -15,21 +15,25 @@ import models
 import datasets.data_utils as data_utils
 import copy
 
-COMBINATIONS = np.array(np.meshgrid(np.arange(start=-1, stop=2), np.arange(start=-1, stop=2))).T.reshape(-1,2)
+COMBINATIONS = np.array(np.meshgrid(np.arange(start=-1, stop=2), np.arange(start=-1, stop=2))).T.reshape(-1, 2)
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
 # Plotting Style
 sns.set_style('darkgrid')
 
-def train(args, ITE=0):
 
+def train(args, ITE=0):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     reinit = True if args.pt == "reinit" else False
-    
-    date = datetime.now().strftime('%d_%m_%Y_%H:%M:%S').replace(' ' , '_')
+
+    date = datetime.now().strftime('%d_%m_%Y_%H:%M:%S').replace(' ', '_')
     train_source_loader, train_target_loader, val_source_loader, val_target_loader = data_utils.get_data(args.ds,
-                                                        args.source, args.target, args.data_dir, args.batch_size, "if_dann")
+                                                                                                         args.source,
+                                                                                                         args.target,
+                                                                                                         args.data_dir,
+                                                                                                         args.batch_size,
+                                                                                                         "if_dann")
 
     global model
 
@@ -44,7 +48,7 @@ def train(args, ITE=0):
 
     get_masks(model)
 
-    optimizer = optim.Adam(model.parameters(), weight_decay=10**-4)
+    optimizer = optim.Adam(model.parameters(), weight_decay=10 ** -4)
     criterion = nn.CrossEntropyLoss()
 
     best_accuracy = 0
@@ -62,7 +66,8 @@ def train(args, ITE=0):
     all_accuracy_target = np.zeros(args.end_iter, float)
 
     if args.lotter:
-        model.load_state_dict(torch.load(f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}.pth.tar"))
+        model.load_state_dict(
+            torch.load(f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}.pth.tar"))
 
     for _ite in range(args.start_iter, ITERATION):
         if _ite != 0 and (((_ite - args.start_iter) % args.iter_to_prune) == 0) and not args.lotter:
@@ -92,17 +97,18 @@ def train(args, ITE=0):
 
         for iter_ in pbar:
 
-            alpha = ((iter_ ) + (_ite * iter_))
+            alpha = ((iter_) + (_ite * iter_))
             # Frequency for Testing
             if iter_ % args.valid_freq == 0:
-                accuracy_source, accuracy_target = test(model, val_source_loader, val_target_loader, args.batch_size, criterion)
+                accuracy_source, accuracy_target = test(model, val_source_loader, val_target_loader, args.batch_size,
+                                                        criterion, alpha)
 
                 # Save Weights
                 if (0.4 * accuracy_source + 0.6 * accuracy_target) > best_accuracy:
                     best_accuracy = (0.4 * accuracy_source + 0.6 * accuracy_target)
                     utils.checkdir(f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/")
                     torch.save(model,
-                                   f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}_{_ite}.pth.tar")
+                               f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}_{_ite}.pth.tar")
 
                 if accuracy_source > best_accuracy_source:
                     best_accuracy_source = accuracy_source
@@ -112,7 +118,7 @@ def train(args, ITE=0):
 
             # Training
             loss, activation_source, activation_target = train_iter(model, train_source_loader, train_target_loader,
-                                                               optimizer, criterion, alpha, args.batch_size)
+                                                                    optimizer, criterion, alpha, args.batch_size)
             all_loss[iter_] = loss
             all_accuracy[iter_] = (0.4 * accuracy_source + 0.6 * accuracy_target)
             all_accuracy_source[iter_] = accuracy_source
@@ -121,9 +127,9 @@ def train(args, ITE=0):
             # Frequency for Printing Accuracy and Loss
             if iter_ % args.print_freq == 0:
                 pbar.set_description(
-                        f'Train Epoch: {iter_}/{args.end_iter} Loss: {loss:.6f} Accuracy: {(0.4 * accuracy_source + 0.6 * accuracy_target):.2f}% Best Accuracy: {best_accuracy:.2f}%'
-                        f'Source_accuracy: {accuracy_source:.2f}% Best Accuracy: {best_accuracy_source:.2f}%'
-                        f'Source_accuracy: {accuracy_target:.2f}% Best Accuracy: {best_accuracy_target:.2f}%')
+                    f'Train Epoch: {iter_}/{args.end_iter} Loss: {loss:.6f} Accuracy: {(0.4 * accuracy_source + 0.6 * accuracy_target):.2f}% Best Accuracy: {best_accuracy:.2f}%'
+                    f'Source_accuracy: {accuracy_source:.2f}% Best Accuracy: {best_accuracy_source:.2f}%'
+                    f'Source_accuracy: {accuracy_target:.2f}% Best Accuracy: {best_accuracy_target:.2f}%')
 
             bestacc[_ite] = best_accuracy
             bestacc_source[_ite] = best_accuracy_source
@@ -230,17 +236,16 @@ def get_distance_mask(activation_source, activation_target, percent):
     for layer in activation_source:
         act_source = activation_source[layer][1]
         act_target = activation_target[layer][1]
-        dist = (torch.sum(act_source, dim=0) / 60) - (torch.sum(act_target, dim = 0) / 60)
+        dist = (torch.sum(act_source, dim=0) / 60) - (torch.sum(act_target, dim=0) / 60)
         nz = dist.detach().numpy()[np.nonzero(dist.detach().numpy())]
-        perc_value = np.percentile(abs(nz), (100-percent))
+        perc_value = np.percentile(abs(nz), (100 - percent))
         dist_mask = np.where((abs(dist) > perc_value), 1, 0)
-        act_source_true, act_target_true = (act_source.detach()*dist_mask), (act_target.detach()*dist_mask)
+        act_source_true, act_target_true = (act_source.detach() * dist_mask), (act_target.detach() * dist_mask)
         act[layer] = (act_source_true, act_target_true)
     return act
 
 
 def get_influence_factor_priv(msk, source, param):
-
     base_src = (torch.transpose(source[0], 1, 2))
     base_src = (torch.transpose(base_src, 2, 3))[:, :, :, :, None, None]
     base_src = base_src.detach() * torch.ones(list(base_src.shape[:-2]) + list(param.shape)[-2:])
@@ -252,27 +257,32 @@ def get_influence_factor_priv(msk, source, param):
     base_src_copy = base_src
     locs_src = np.where((msk.numpy() != 0))
     locs_src = list(locs_src)
-    locs_src[0], locs_src[1], locs_src[2], locs_src[3] = locs_src[0][locs_src[2] != 0], locs_src[1][locs_src[2] != 0], locs_src[2][locs_src[2] != 0], locs_src[3][locs_src[2] != 0]
-    locs_src[0], locs_src[1], locs_src[2], locs_src[3] = locs_src[0][locs_src[2] != base_src.shape[2]-1], locs_src[1][locs_src[2] != base_src.shape[2]-1], locs_src[2][locs_src[2] != base_src.shape[2]-1], locs_src[3][locs_src[2] != base_src.shape[2]-1]
-    locs_src[0], locs_src[1], locs_src[2], locs_src[3] = locs_src[0][locs_src[1] != 0], locs_src[1][locs_src[1] != 0], locs_src[2][locs_src[1] != 0], locs_src[3][locs_src[1] != 0]
-    locs_src[0], locs_src[1], locs_src[2], locs_src[3] = locs_src[0][locs_src[1] != base_src.shape[2]-1], locs_src[1][locs_src[1] != base_src.shape[2]-1], locs_src[2][locs_src[1] != base_src.shape[2]-1], locs_src[3][locs_src[1] != base_src.shape[2]-1]
+    locs_src[0], locs_src[1], locs_src[2], locs_src[3] = locs_src[0][locs_src[2] != 0], locs_src[1][locs_src[2] != 0], \
+                                                         locs_src[2][locs_src[2] != 0], locs_src[3][locs_src[2] != 0]
+    locs_src[0], locs_src[1], locs_src[2], locs_src[3] = locs_src[0][locs_src[2] != base_src.shape[2] - 1], locs_src[1][
+        locs_src[2] != base_src.shape[2] - 1], locs_src[2][locs_src[2] != base_src.shape[2] - 1], locs_src[3][
+                                                             locs_src[2] != base_src.shape[2] - 1]
+    locs_src[0], locs_src[1], locs_src[2], locs_src[3] = locs_src[0][locs_src[1] != 0], locs_src[1][locs_src[1] != 0], \
+                                                         locs_src[2][locs_src[1] != 0], locs_src[3][locs_src[1] != 0]
+    locs_src[0], locs_src[1], locs_src[2], locs_src[3] = locs_src[0][locs_src[1] != base_src.shape[2] - 1], locs_src[1][
+        locs_src[1] != base_src.shape[2] - 1], locs_src[2][locs_src[1] != base_src.shape[2] - 1], locs_src[3][
+                                                             locs_src[1] != base_src.shape[2] - 1]
     for i in COMBINATIONS:
         locs_curr = list(locs_src)
         locs_curr[2], locs_curr[1] = locs_curr[2] - i[0], locs_curr[1] - i[1]
-        base_src[locs_curr][:][:, i[0]+1, i[1]+1] = base_src[locs_curr][:][:, i[0]+1, i[1]+1] / msk[locs_curr].view(-1, 1)
+        base_src[locs_curr][:][:, i[0] + 1, i[1] + 1] = base_src[locs_curr][:][:, i[0] + 1, i[1] + 1] / msk[
+            locs_curr].view(-1, 1)
     base_src = np.where(base_src.detach() != base_src_copy.detach(), 0, base_src.detach())
     return np.sum(base_src, axis=(0, 1, 2))
 
 
 def get_influence_factor(msk, source, target, param):
-
     if_source = get_influence_factor_priv(msk[0], source, param)
     if_target = get_influence_factor_priv(msk[1], target, param)
-    return if_source+if_target
+    return if_source + if_target
 
 
 def prune_by_perc(percent, activation_source, activation_target):
-
     global step
     global mask
     global model
@@ -288,7 +298,7 @@ def prune_by_perc(percent, activation_source, activation_target):
                                                          activation_source[name.split('.')[1]],
                                                          activation_target[name.split('.')[1]], param)
                 nz = influence_factors[np.nonzero(influence_factors)]
-                perc_value = np.percentile(abs(nz), (100-percent))
+                perc_value = np.percentile(abs(nz), (100 - percent))
 
                 weights = param.device
                 nm = np.where(abs(influence_factors) > perc_value, 0, mask[step])
@@ -296,7 +306,7 @@ def prune_by_perc(percent, activation_source, activation_target):
                 param.data = torch.from_numpy(tensor * nm).to(weights)
             else:
                 if 'classifier' in name:
-                    percent=20
+                    percent = 20
                 tensor = param.data.cpu().numpy()
 
                 nz = tensor[np.nonzero(tensor)]
@@ -343,8 +353,8 @@ def original_initialization(mask_temp, initial_state_dict):
             param.data = initial_state_dict[name]
     step = 0
 
-def train_iter(model, source, target, optimizer, criterion, alpha, batch_size):
 
+def train_iter(model, source, target, optimizer, criterion, alpha, batch_size):
     EPS = 1e-6
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.train()
@@ -359,7 +369,7 @@ def train_iter(model, source, target, optimizer, criterion, alpha, batch_size):
         imgs_target, target_class = imgs_target.to(device), target_class.to(device)
         source_class_pred, source_domain_pred, source_activations_curr = model(imgs_source, alpha)
         loss_cl_source = criterion(source_class_pred, source_class)
-        loss_dis_source = criterion(source_domain_pred, torch.zeros((batch_size), dtype = torch.long))
+        loss_dis_source = criterion(source_domain_pred, torch.zeros((batch_size), dtype=torch.long))
 
         _, target_domain_pred, target_activations_curr = model(imgs_target, alpha)
         loss_dis_target = criterion(target_domain_pred, torch.ones((batch_size), dtype=torch.long))
@@ -371,10 +381,10 @@ def train_iter(model, source, target, optimizer, criterion, alpha, batch_size):
                 source_activations[key] = source_activations_curr[key]
                 target_activations[key] = target_activations_curr[key]
             else:
-                source_activations[key][0] = source_activations_curr[key][0]+ source_activations[key][0]
-                target_activations[key][0] = target_activations_curr[key][0]+ target_activations[key][0]
-                source_activations[key][1] = source_activations_curr[key][1]+ source_activations[key][1]
-                target_activations[key][1] = target_activations_curr[key][1]+ target_activations[key][1]
+                source_activations[key][0] = source_activations_curr[key][0] + source_activations[key][0]
+                target_activations[key][0] = target_activations_curr[key][0] + target_activations[key][0]
+                source_activations[key][1] = source_activations_curr[key][1] + source_activations[key][1]
+                target_activations[key][1] = target_activations_curr[key][1] + target_activations[key][1]
 
         for name, p in model.named_parameters():
             if 'weight' in name:
@@ -391,20 +401,29 @@ def train_iter(model, source, target, optimizer, criterion, alpha, batch_size):
         target_activations[key][1] = target_activations[key][1] / a
     return train_loss.item(), source_activations, target_activations
 
+
 # Function for Testing
-def test(model, test_loader, criterion):
+def test(model, source, target, batch_size, criterion, alpha):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.eval()
-    test_loss = 0
-    correct = 0
+    test_source_loss, test_target_loss, correct_source, correct_target = 0, 0, 0, 0
     with torch.no_grad():
-        for data, target in test_loader:
-            data, target = data.to(device), target.to(device)
-            output, _, _ = model(data, 0.1)
-            test_loss += criterion(output, target).item()  # sum up batch loss
-            pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
-            correct += pred.eq(target.data.view_as(pred)).sum().item()
-        test_loss /= len(test_loader.dataset)
-        accuracy = 100. * correct / len(test_loader.dataset)
-    return accuracy
-
+        source_iter, target_iter = iter(source), iter(target)
+        for i in range(min(len(source_iter), len(target_iter))):
+            imgs_source, source_class = source_iter.next()
+            imgs_target, target_class = target_iter.next()
+            imgs_source, source_class = imgs_source.to(device), source_class.to(device)
+            imgs_target, target_class = imgs_target.to(device), target_class.to(device)
+            output_source, _, _ = model(imgs_source, alpha)
+            output_target, _, _ = model(imgs_target, alpha)
+            test_source_loss += criterion(output_source, source_class).item()
+            test_target_loss += criterion(output_target, target_class).item()
+            pred_source = output_source.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
+            pred_target = output_target.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
+            correct_source += pred_source.eq(source_class.data.view_as(pred_source)).sum().item()
+            correct_target += pred_target.eq(target_class.data.view_as(pred_target)).sum().item()
+        test_source_loss /= (min(len(source_iter), len(target_iter)) * batch_size)
+        test_target_loss /= (min(len(source_iter), len(target_iter)) * batch_size)
+        accuracy_source = 100. * correct_source / (min(len(source_iter), len(target_iter)) * batch_size)
+        accuracy_target = 100. * correct_target / (min(len(source_iter), len(target_iter)) * batch_size)
+    return accuracy_source, accuracy_target
