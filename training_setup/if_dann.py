@@ -128,8 +128,8 @@ def train(args, ITE=0):
             if iter_ % args.print_freq == 0:
                 pbar.set_description(
                     f'Train Epoch: {iter_}/{args.end_iter} Loss: {loss:.6f} Accuracy: {(0.4 * accuracy_source + 0.6 * accuracy_target):.2f}% Best Accuracy: {best_accuracy:.2f}%'
-                    f'Source_accuracy: {accuracy_source:.2f}% Best Accuracy: {best_accuracy_source:.2f}%'
-                    f'Source_accuracy: {accuracy_target:.2f}% Best Accuracy: {best_accuracy_target:.2f}%')
+                    f'Source_accuracy: {accuracy_source:.2f}% Best source accuracy: {best_accuracy_source:.2f}%'
+                    f'Target_accuracy: {accuracy_target:.2f}% Best target accuracy: {best_accuracy_target:.2f}%')
 
             bestacc[_ite] = best_accuracy
             bestacc_source[_ite] = best_accuracy_source
