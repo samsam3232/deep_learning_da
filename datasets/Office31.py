@@ -1,7 +1,7 @@
 import dalib.vision.datasets as ds
 from torch.utils.data import DataLoader
 
-DATASET_DOMAINS = ["A", "W", "D", "C"]
+DATASET_DOMAINS = ["A", "W", "D"]
 
 def get_loaders_tf(source, target, data_dir, transform_train, transform_val, batch_size):
 

@@ -74,14 +74,23 @@ def train(args, ITE=0):
         if _ite != 0 and (((_ite - args.start_iter) % args.iter_to_prune) == 0) and not args.lotter:
             prune_by_perc(args.prune_percent, activation_source, activation_target)
             if reinit:
-                model.apply(weight_init)
-                step = 0
-                for name, param in model.named_parameters():
-                    if 'weight' in name:
-                        weight_dev = param.device
-                        param.data = torch.from_numpy(param.data.cpu().numpy() * mask[step]).to(weight_dev)
-                        step = step + 1
-                step = 0
+                model.init_weights(args.pretrained, args.freeze_all)
+                for m in model.features._modules.keys():
+                    if isinstance(m, nn.Sequential):
+                        continue
+                    module = model.features._modules[m]
+                    if "conv" in module._get_name():
+                        weight, _ = module.parameters()
+                        weight_dev = weight.device
+                        weight.data = torch.from_numpy(weight.data.cpu().numpy() * mask["features"][m]).to(weight_dev)
+                for m in model.classifier._modules.keys():
+                    if isinstance(m, nn.Sequential):
+                        continue
+                    module = model.classifier._modules[m]
+                    if "linear" in module._get_name():
+                        weight, _ = module.parameters()
+                        weight_dev = weight.device
+                        weight.data = torch.from_numpy(weight.data.cpu().numpy() * mask["classifier"][m]).to(weight_dev)
             else:
                 original_initialization(mask, initial_state_dict)
             optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
@@ -253,7 +262,7 @@ def get_distance_mask(activation_source, activation_target, percent):
 def get_influence_factor_priv(msk, source, param):
     base_src = (torch.transpose(source[0], 1, 2))
     base_src = (torch.transpose(base_src, 2, 3))[:, :, :, :, None, None]
-    base_src = base_src.detach() * torch.ones(list(base_src.shape[:-2]) + list(param.shape)[-2:])
+    base_src = base_src.detach() * torch.ones(list(base_src.shape[:-2]) + param.shape[-2:])
     base_src = base_src[:, :, :, None, :, :, :] * param
     msk = torch.transpose(msk, 1, 2)
     msk = torch.transpose(msk, 2, 3)
@@ -345,8 +354,7 @@ def get_masks(model):
     step = 0
 
 
-def original_initialization(mask_temp, initial_state_dict):
-    global model
+def original_initialization(mask_temp, initial_state_dict, model):
 
     step = 0
     for name, param in model.named_parameters():

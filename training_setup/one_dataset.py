@@ -14,13 +14,16 @@ import os
 import matplotlib.pyplot as plt
 import models
 import datasets.data_utils as data_utils
+import training_setup.training_utils as training_utils
+import pruners.influence_factor as if_pruner
 import copy
+from collections import defaultdict
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 # Plotting Style
 sns.set_style('darkgrid')
 
-MODELS = {"vgg" : models.vgg_like}
+MODELS = {"vgg" : models.vgg_like.VggGetter}
 
 
 def train(args, ITE = 0):
@@ -29,52 +32,51 @@ def train(args, ITE = 0):
     reinit = True if args.pt == "reinit" else False
 
     date = datetime.now().strftime('%d_%m_%Y_%H:%M:%S').replace(' ', '_')
-    train_loader, val_source, val_target = data_utils.get_data(args.ds, args.source, args.target, args.data_dir,
-                                                                args.batch_size, "one_ds")
+    train_loader, train_target, val_source, val_target = data_utils.get_data(args.ds, args.source, args.target, args.data_dir,
+                                                                args.batch_size, "full_opt")
 
     global model
 
-    model = MODELS[args.model].get_vgg(args.size, args.pretrained)
+    model = MODELS[args.model](size = args.size, pretrained = args.pretrained, freeze_all = args.freeze_all, ganin_da = args.ganin)
     model.to(device)
 
     initial_state_dict = copy.deepcopy(model.state_dict())
     utils.checkdir(f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/")
     torch.save(model, f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}.pth.tar")
 
-    get_masks(model)
+    masks = get_masks(model)
 
-    optimizer = optim.Adam(model.parameters(), weight_decay=10**-3)
-    class_loss = nn.NLLLoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+    criterion = nn.CrossEntropyLoss()
 
-    best_accuracy = 0
-    best_accuracy_source = 0
-    best_accuracy_target = 0
     ITERATION = args.prune_iterations
-    comp = np.zeros(ITERATION, float)
-    bestacc = np.zeros(ITERATION, float)
-    bestacc_source = np.zeros(ITERATION, float)
-    bestacc_target = np.zeros(ITERATION, float)
-    step = 0
-    all_loss = np.zeros(args.end_iter, float)
-    all_accuracy = np.zeros(args.end_iter, float)
-    all_accuracy_source = np.zeros(args.end_iter, float)
-    all_accuracy_target = np.zeros(args.end_iter, float)
+    end_iter = args.end_iter
+    best_accuracy, best_accuracy_source, best_accuracy_target, comp, bestacc,bestacc_source, bestacc_target, all_loss, all_accuracy, all_accuracy_source, all_accuracy_target = training_utils.init_lists(ITERATION, end_iter)
+
+    pruner = if_pruner.IFPruner(masks=masks, device=device, prune_features=args.prune_features, prune_classifier=
+                                args.prune_classifier, percent=args.prune_ercent)
 
     for _ite in range(args.start_iter, ITERATION):
         if _ite != 0 and (((_ite - args.start_iter) % args.iter_to_prune) == 0) and not args.lotter:
-            prune_by_perc(args.prune_percent)
+            model = pruner.IFFeaturesPruner.prune_by_perc(args.prune_percent, activations, model, args.cl)
             if reinit:
-                if args.pretrained:
-                    model.apply(MODELS[args.model].classifier_init)
-                else:
-                    model.apply(weight_init)
-                step = 0
-                for name, param in model.named_parameters():
-                    if 'weight' in name:
-                        weight_dev = param.device
-                        param.data = torch.from_numpy(param.data.cpu().numpy() * mask[step]).to(weight_dev)
-                        step = step + 1
-                step = 0
+                model.init_weights(args.pretrained, args.freeze_all)
+                for m in model.features._modules.keys():
+                    if isinstance(m, nn.Sequential):
+                        continue
+                    module = model.features._modules[m]
+                    if "conv" in module._get_name():
+                        weight, _ = module.parameters()
+                        weight_dev = weight.device
+                        weight.data = torch.from_numpy(weight.data.cpu().numpy() * mask["features"][m]).to(weight_dev)
+                for m in model.classifier._modules.keys():
+                    if isinstance(m, nn.Sequential):
+                        continue
+                    module = model.classifier._modules[m]
+                    if "linear" in module._get_name():
+                        weight, _ = module.parameters()
+                        weight_dev = weight.device
+                        weight.data = torch.from_numpy(weight.data.cpu().numpy() * mask["classifier"][m]).to(weight_dev)
             else:
                 original_initialization(mask, initial_state_dict)
             optimizer = optim.Adam(model.parameters(), weight_decay=10 ** (-3))
@@ -89,7 +91,7 @@ def train(args, ITE = 0):
         for iter_ in pbar:
             # Frequency for Testing
             if iter_ % args.valid_freq == 0:
-                accuracy_source, accuracy_target = test(model, val_source, val_target, args.batch_size, class_loss)
+                accuracy_source, accuracy_target = test(model, val_source, val_target, args.batch_size, criterion, args.alpha, args.ganin)
 
                     # Save Weights
                 if (0.4 * accuracy_source + 0.6 * accuracy_target) > best_accuracy:
@@ -105,7 +107,9 @@ def train(args, ITE = 0):
                     best_accuracy_target = accuracy_target
 
                 # Training
-            loss = train_iter(model, train_loader, optimizer, class_loss)
+            loss, activations_source = train_iter(model, train_loader, args.ganin, optimizer, criterion, args.alpha)
+            activations_target = target_activations(model, train_target, args.ganin, args.alpha)
+            activations = (activations_source, activations_target)
             all_loss[iter_] = loss
             all_accuracy[iter_] = (0.4 * accuracy_source + 0.6 * accuracy_target)
             all_accuracy_source[iter_] = accuracy_source
@@ -217,28 +221,6 @@ def weight_init(m):
 
 
 
-def prune_by_perc(percent):
-    global step
-    global mask
-    global model
-
-    for name, param in model.classifier.named_parameters():
-        if ('weight' in name):
-            if ('classifier' in name):
-                tensor = param.data.cpu().numpy()
-                nz = tensor[np.nonzero(tensor)]
-                perc_value = np.percentile(abs(nz), (percent))
-
-                weights = param.device
-                nm = np.where(abs(tensor) < perc_value, 0, mask[step])
-
-                param.data = torch.from_numpy(tensor * nm).to(weights)
-                mask[step] = nm
-            step += 1
-
-    step = 0
-
-
 def get_masks(model):
     global step
     global mask
@@ -260,18 +242,26 @@ def get_masks(model):
 def original_initialization(mask_temp, initial_state_dict):
     global model
 
-    step = 0
-    for name, param in model.named_parameters():
-        if "weight" in name:
-            weight_dev = param.device
-            param.data = torch.from_numpy(mask_temp[step] * initial_state_dict[name].cpu().numpy()).to(weight_dev)
-            step = step + 1
-        if "bias" in name:
-            param.data = initial_state_dict[name]
-    step = 0
+    for m in model.features._modules.keys():
+        if isinstance(m, nn.Sequential):
+            continue
+        module = model.features._modules[m]
+        if "conv" in module._get_name():
+            weight, bias = module.parameters()
+            weight_dev = weight.device
+            weight.data = torch.from_numpy(initial_state_dict["features"]["weight"][m].cpu().numpy() * mask_temp["features"][m]).to(weight_dev)
+            bias.data = initial_state_dict["features"]["bias"][m]
+    for m in model.classifier._modules.keys():
+        if isinstance(m, nn.Sequential):
+            continue
+        module = model.classifier._modules[m]
+        if "linear" in module._get_name():
+            weight, bias = module.parameters()
+            weight_dev = weight.device
+            weight.data = torch.from_numpy(initial_state_dict["classifier"]["weight"][m].cpu().numpy() * mask_temp["classifier"][m]).to(weight_dev)
+            bias.data = initial_state_dict["classifier"]["bias"][m]
 
-
-def train_iter(model, source, optimizer, class_loss):
+def train_iter(model, source, ganin, optimizer, criterion, alpha):
 
     EPS = 1e-6
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -280,8 +270,8 @@ def train_iter(model, source, optimizer, class_loss):
 
         optimizer.zero_grad()
         img, labels = img.to(device), labels.to(device)
-        preds = model(img)
-        loss = class_loss(preds, labels)
+        preds, _, _, activations_source = model(img, alpha, ganin, True, False)
+        loss = criterion(preds, labels)
 
         loss.backward()
 
@@ -293,10 +283,18 @@ def train_iter(model, source, optimizer, class_loss):
                 p.grad.data = torch.from_numpy(grad_tensor).to(device)
         optimizer.step()
 
-    return loss.item()
+    return loss.item(), activations_source
+
+def target_activations(model, target, ganin, alpha):
+
+    target_iter = target.iter()
+    imgs, _ = target_iter.next()
+    imgs.to(model.device)
+    _, _, _, activations_target = model(imgs, alpha, ganin, True, False)
+    return activations_target
 
 # Function for Testing
-def test(model, source, target, batch_size, criterion):
+def test(model, source, target, batch_size, criterion, alpha, ganin):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.eval()
@@ -308,8 +306,8 @@ def test(model, source, target, batch_size, criterion):
             imgs_target, target_class = target_iter.next()
             imgs_source, source_class = imgs_source.to(device), source_class.to(device)
             imgs_target, target_class = imgs_target.to(device), target_class.to(device)
-            output_source = model(imgs_source)
-            output_target = model(imgs_target)
+            output_source, _, _, _ = model(imgs_source, alpha, ganin, False, False)
+            output_target, _, _, _ = model(imgs_target, alpha, ganin, False, False)
             test_source_loss += criterion(output_source, source_class).item()
             test_target_loss += criterion(output_target, target_class).item()
             pred_source = output_source.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
@@ -321,4 +319,27 @@ def test(model, source, target, batch_size, criterion):
         accuracy_source = 100. * correct_source / (min(len(source_iter), len(target_iter)) * batch_size)
         accuracy_target = 100. * correct_target / (min(len(source_iter), len(target_iter)) * batch_size)
     return accuracy_source, accuracy_target
+
+def get_initial_state(model):
+
+    initial_state = {"features":{"weight":dict(),"classifier":dict()},"classifier":{"weight":dict(),"classifier":dict()}}
+
+    for m in model.features._modules.keys():
+        if isinstance(m, nn.Sequential):
+            continue
+        module = model.features._modules[m]
+        if "conv" in module._get_name():
+            weight, bias = module.parameters()
+            initial_state["features"]["weight"][m] = weight.data
+            initial_state["features"]["bias"][m] = bias.data
+    for m in model.classifier._modules.keys():
+        if isinstance(m, nn.Sequential):
+            continue
+        module = model.classifier._modules[m]
+        if "linear" in module._get_name():
+            weight, bias = module.parameters()
+            initial_state["classifier"]["weight"][m] = weight.data
+            initial_state["classifier"]["bias"][m] = bias.data
+
+    return initial_state
 

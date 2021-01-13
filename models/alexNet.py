@@ -1,36 +1,33 @@
 import torch.nn as nn
-from models import ganinDann
 import torchvision.models as md
+from models import ganinDann
 from models.funcs import ReverseLayerF
 
-VGG_SIZES = {16: md.vgg16, 19: md.vgg19}
-STOPS = {16: 21, 19: 25}
-STOPS_INITS = {16: 11, 19: 13}
-
-class VggGetter(nn.Module):
-
-    def __init__(self, size = 16, pretrained = False, freeze_all = True, ganin_da = False):
+class alexNetGetter(nn.Module):
+    
+    def __init__(self, pretrained=False, freeze_all=True, ganin_da=False):
         self.ganin = False
-        self.model = VGG_SIZES[size](pretrained=pretrained)
+        self.model = md.alexnet(pretrained=pretrained)
         if pretrained:
-            self.model = self.freeze_features(freeze_all, STOPS[size])
+            self.model = self.freeze_weight(freeze_all)
         if ganin_da:
             self.model.domain_classifier = ganinDann.DomainClassifier().get_discriminator()
             self.ganin = True
-        self.model = self.init_weights(pretrained, freeze_all, count_stp=STOPS_INITS[size])
+        self.model = self.init_weights(pretrained, freeze_all)
 
-    def freeze_weights(self, freeze_all = True, stop = 21):
+
+    def freeze_weight(self, freeze_all = True):
 
         if freeze_all:
-            for param in self.model.features.parameters():
+            for param in self.model.features.params():
                 param.requires_grad = False
 
         else:
-            for name, param in self.model.features.named_parameters():
-                if int(name.split(".")[0]) <= stop:
+            for name, param in self.model.named_parameters():
+                if int(name.split(".")[1]) < 8:
                     param.requires_grad = False
 
-    def init_weights(self, pretrained, freeze_all, count_stp = 11):
+    def init_weights(self, pretrained, freeze_all):
 
         for m in self.model.classifier.modules():
             if isinstance(m, nn.Linear):
@@ -41,44 +38,44 @@ class VggGetter(nn.Module):
                 if isinstance(m, nn.Linear):
                     nn.init.normal_(m.weight, 0, 0.01)
                     nn.init.constant_(m.bias, 0)
-        if (not pretrained) or (not freeze_all):
-            count = 1
-            for m in self.model.features.modules():
-                if isinstance(m, nn.Conv2d):
-                    if (not freeze_all) and (count < count_stp):
+        if pretrained:
+            if not freeze_all:
+                count = 1
+                for m in self.model.features.modules():
+                    if isinstance(m, nn.Conv2d):
+                        if count >= 4:
+                            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                            if m.bias is not None:
+                                nn.init.constant_(m.bias, 0)
                         count += 1
-                        continue
-                    nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-                    if m.bias is not None:
-                        nn.init.constant_(m.bias, 0)
-                    count += 1
-
-    def forward(self, input, alpha, ganin=False, keep_feature=True, keep_classifier=False):
+    
+    def forward(self, input, alpha, ganin=False, keep_feature=False, keep_classifier=False):
 
         activations_features, activations_classifier, domain_pred = dict(), dict(), None
         feats = input
-        for m in self.model.features._modules.keys():
-            if isinstance(self.model.features._modules[m], nn.Sequential):
+        count = 1
+        for m in self.model.features.modules():
+            if isinstance(m, nn.Sequential):
                 continue
             module = self.model.features._modules[m]
             feats_curr = module.forward(feats)
             if keep_feature:
                 if "conv" in module._get_name().lower():
-                    activations_features[m] = [feats, feats_curr]
+                    activations_features[module._get_name() + "_{}".format(str(count))] = [feats, feats_curr]
             feats = feats_curr
+        count = 1
         feats = feats.view(-1, 4096)
         if ganin:
             reversed_feats = ReverseLayerF.apply(feats, alpha)
             domain_pred = self.model.domain_classifier(reversed_feats)
-        for m in self.model.classifier._modules.keys():
-            if isinstance(self.model.features._modules[m], nn.Sequential):
+        for m in self.model.classifier.modules():
+            if isinstance(m, nn.Sequential):
                 continue
             module = self.model.classifier._modules[m]
             feats_curr = module.forward(feats)
             if keep_classifier:
                 if "linear" in module._get_name().lower():
-                    activations_classifier[m] = [feats, feats_curr]
+                    activations_classifier[module._get_name() + "_{}".format(str(count))] = [feats, feats_curr]
             feats = feats_curr
         class_pred = feats
-
         return class_pred, domain_pred, activations_classifier, activations_features

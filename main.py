@@ -32,7 +32,12 @@ if __name__ == "__main__":
     parser.add_argument("--setup", default="one_ds", type=str)
     parser.add_argument("--model", default = "vgg", type=str)
     parser.add_argument("--size", default=16, type = int)
-    parser.add_argument("--pretrained", default=True, type=bool)
+    parser.add_argument("--pretrained", action="store_true")
+    parser.add_argument("--alpha", default=10, type=int)
+    parser.add_argument("--freeze_all", action="store_true")
+    parser.add_argument("--ganin", action="store_true")
+    parser.add_argument("--prune_features", action="store_true")
+    parser.add_argument("--prune_classifier", action="store_true")
     args = parser.parse_args()
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
