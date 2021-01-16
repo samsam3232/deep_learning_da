@@ -10,6 +10,7 @@ STOPS_INITS = {16: 11, 19: 13}
 class VggGetter(nn.Module):
 
     def __init__(self, size = 16, pretrained = False, freeze_all = True, ganin_da = False):
+        super().__init__()
         self.ganin = False
         self.model = VGG_SIZES[size](pretrained=pretrained)
         if pretrained:
