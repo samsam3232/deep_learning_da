@@ -35,18 +35,18 @@ def train(args, ITE = 0):
     train_loader, train_target, val_source, val_target = data_utils.get_data(args.ds, args.source, args.target, args.data_dir,
                                                                 args.batch_size, "full_opt")
 
-    global model
+    global vggGetter
 
-    model = MODELS[args.model](size = args.size, pretrained = args.pretrained, freeze_all = args.freeze_all, ganin_da = args.ganin)
-    model.to(device)
+    vggGetter = MODELS[args.model](size = args.size, pretrained = args.pretrained, freeze_all = args.freeze_all, ganin_da = args.ganin)
+    vggGetter.model.to(device)
 
-    initial_state_dict = copy.deepcopy(model.state_dict())
+    initial_state_dict = copy.deepcopy(vggGetter.model.state_dict())
     utils.checkdir(f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/")
-    torch.save(model, f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}.pth.tar")
+    torch.save(vggGetter.model, f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}.pth.tar")
 
-    masks = get_masks(model)
+    masks = get_masks(vggGetter.model)
 
-    optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+    optimizer = optim.SGD(vggGetter.model.parameters(), lr=0.01, momentum=0.9)
     criterion = nn.CrossEntropyLoss()
 
     ITERATION = args.prune_iterations
@@ -58,28 +58,28 @@ def train(args, ITE = 0):
 
     for _ite in range(args.start_iter, ITERATION):
         if _ite != 0 and (((_ite - args.start_iter) % args.iter_to_prune) == 0) and not args.lotter:
-            model = pruner.IFFeaturesPruner.prune_by_perc(args.prune_percent, activations, model, args.cl)
+            vggGetter.model = pruner.IFFeaturesPruner.prune_by_perc(args.prune_percent, activations, vggGetter.model, args.cl)
             if reinit:
-                model.init_weights(args.pretrained, args.freeze_all)
+                vggGetter.init_weights(args.pretrained, args.freeze_all)
                 for m in model.features._modules.keys():
                     if isinstance(m, nn.Sequential):
                         continue
-                    module = model.features._modules[m]
+                    module = vggGetter.model.features._modules[m]
                     if "conv" in module._get_name():
                         weight, _ = module.parameters()
                         weight_dev = weight.device
                         weight.data = torch.from_numpy(weight.data.cpu().numpy() * mask["features"][m]).to(weight_dev)
-                for m in model.classifier._modules.keys():
+                for m in vggGetter.model.classifier._modules.keys():
                     if isinstance(m, nn.Sequential):
                         continue
-                    module = model.classifier._modules[m]
+                    module = vggGetter.model.classifier._modules[m]
                     if "linear" in module._get_name():
                         weight, _ = module.parameters()
                         weight_dev = weight.device
                         weight.data = torch.from_numpy(weight.data.cpu().numpy() * mask["classifier"][m]).to(weight_dev)
             else:
                 original_initialization(mask, initial_state_dict)
-            optimizer = optim.Adam(model.parameters(), weight_decay=10 ** (-3))
+            optimizer = optim.Adam(vggGetter.model.parameters(), weight_decay=10 ** (-3))
 
         print(f"\n--- Pruning Level [{ITE}:{_ite}/{ITERATION}]: ---")
 
@@ -91,7 +91,7 @@ def train(args, ITE = 0):
         for iter_ in pbar:
             # Frequency for Testing
             if iter_ % args.valid_freq == 0:
-                accuracy_source, accuracy_target = test(model, val_source, val_target, args.batch_size, criterion, args.alpha, args.ganin)
+                accuracy_source, accuracy_target = test(vggGetter.model, val_source, val_target, args.batch_size, criterion, args.alpha, args.ganin)
 
                     # Save Weights
                 if (0.4 * accuracy_source + 0.6 * accuracy_target) > best_accuracy:
@@ -107,8 +107,8 @@ def train(args, ITE = 0):
                     best_accuracy_target = accuracy_target
 
                 # Training
-            loss, activations_source = train_iter(model, train_loader, args.ganin, optimizer, criterion, args.alpha)
-            activations_target = target_activations(model, train_target, args.ganin, args.alpha)
+            loss, activations_source = train_iter(vggGetter.model, train_loader, args.ganin, optimizer, criterion, args.alpha)
+            activations_target = target_activations(vggGetter.model, train_target, args.ganin, args.alpha)
             activations = (activations_source, activations_target)
             all_loss[iter_] = loss
             all_accuracy[iter_] = (0.4 * accuracy_source + 0.6 * accuracy_target)
