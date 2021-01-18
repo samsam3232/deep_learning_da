@@ -36,11 +36,12 @@ def train(args, ITE = 0):
                                                                 args.batch_size, "full_opt")
 
     global vggGetter
+    global masks
 
     vggGetter = MODELS[args.model](size = args.size, pretrained = args.pretrained, freeze_all = args.freeze_all, ganin_da = args.ganin)
     vggGetter.model.to(device)
 
-    initial_state_dict = copy.deepcopy(vggGetter.model.state_dict())
+    initial_state_dict = copy.deepcopy(get_initial_state(vggGetter.model))
     utils.checkdir(f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/")
     torch.save(vggGetter.model, f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}.pth.tar")
 
@@ -54,7 +55,7 @@ def train(args, ITE = 0):
     best_accuracy, best_accuracy_source, best_accuracy_target, comp, bestacc,bestacc_source, bestacc_target, all_loss, all_accuracy, all_accuracy_source, all_accuracy_target = training_utils.init_lists(ITERATION, end_iter)
 
     pruner = if_pruner.IFPruner(masks=masks, device=device, prune_features=args.prune_features, prune_classifier=
-                                args.prune_classifier, percent=args.prune_ercent)
+                                args.prune_classifier, percent=args.prune_percent)
 
     for _ite in range(args.start_iter, ITERATION):
         if _ite != 0 and (((_ite - args.start_iter) % args.iter_to_prune) == 0) and not args.lotter:
@@ -68,7 +69,7 @@ def train(args, ITE = 0):
                     if "conv" in module._get_name():
                         weight, _ = module.parameters()
                         weight_dev = weight.device
-                        weight.data = torch.from_numpy(weight.data.cpu().numpy() * mask["features"][m]).to(weight_dev)
+                        weight.data = torch.from_numpy(weight.data.cpu().numpy() * masks["features"][m]).to(weight_dev)
                 for m in vggGetter.model.classifier._modules.keys():
                     if isinstance(m, nn.Sequential):
                         continue
@@ -76,28 +77,28 @@ def train(args, ITE = 0):
                     if "linear" in module._get_name():
                         weight, _ = module.parameters()
                         weight_dev = weight.device
-                        weight.data = torch.from_numpy(weight.data.cpu().numpy() * mask["classifier"][m]).to(weight_dev)
+                        weight.data = torch.from_numpy(weight.data.cpu().numpy() * masks["classifier"][m]).to(weight_dev)
             else:
-                original_initialization(mask, initial_state_dict)
+                original_initialization(masks, initial_state_dict)
             optimizer = optim.Adam(vggGetter.model.parameters(), weight_decay=10 ** (-3))
 
         print(f"\n--- Pruning Level [{ITE}:{_ite}/{ITERATION}]: ---")
 
         # Print the table of Nonzeros in each layer
-        comp1 = utils.print_nonzeros(model)
+        comp1 = utils.print_nonzeros(vggGetter.model)
         comp[_ite] = comp1
         pbar = tqdm(range(args.end_iter))
         
         for iter_ in pbar:
             # Frequency for Testing
             if iter_ % args.valid_freq == 0:
-                accuracy_source, accuracy_target = test(vggGetter.model, val_source, val_target, args.batch_size, criterion, args.alpha, args.ganin)
+                accuracy_source, accuracy_target = test(vggGetter, val_source, val_target, args.batch_size, criterion, args.alpha, args.ganin)
 
                     # Save Weights
                 if (0.4 * accuracy_source + 0.6 * accuracy_target) > best_accuracy:
                     best_accuracy = (0.4 * accuracy_source + 0.6 * accuracy_target)
                     utils.checkdir(f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/")
-                    torch.save(model,
+                    torch.save(vggGetter.model,
                                    f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}_{_ite}.pth.tar")
 
                 if accuracy_source > best_accuracy_source:
@@ -170,7 +171,7 @@ def train(args, ITE = 0):
         # Dumping mask
         utils.checkdir(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/")
         with open(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_mask_{comp1}_{_ite}.pkl",'wb') as fp:
-            pickle.dump(mask, fp)
+            pickle.dump(masks, fp)
 
         # Making variables into 0
         best_accuracy = 0
@@ -223,21 +224,24 @@ def weight_init(m):
 
 def get_masks(model):
     global step
-    global mask
+    masks = defaultdict(lambda: defaultdict(lambda : 0))
 
-    step = 0
-    for name, param in model.named_parameters():
-        if 'weight' in name:
-            step += 1
-    mask = [None] * step
-    step = 0
-    for name, param in model.named_parameters():
-        if 'weight' in name:
-            same_size_tens = param.data.cpu().numpy()
-            mask[step] = np.ones_like(same_size_tens)
-            step += 1
-    step = 0
+    for m in model.features._modules.keys():
+        if isinstance(m, nn.Sequential):
+            continue
+        module = model.features._modules[m]
+        if "conv" in module._get_name().lower():
+            weight, _ = module.parameters()
+            masks["features"][m] = weight.data
+    for m in model.classifier._modules.keys():
+        if isinstance(m, nn.Sequential):
+            continue
+        module = model.classifier._modules[m]
+        if "linear" in module._get_name().lower():
+            weight, _ = module.parameters()
+            masks["classifier"][m] = weight.data
 
+    return masks
 
 def original_initialization(mask_temp, initial_state_dict):
     global model
@@ -246,7 +250,7 @@ def original_initialization(mask_temp, initial_state_dict):
         if isinstance(m, nn.Sequential):
             continue
         module = model.features._modules[m]
-        if "conv" in module._get_name():
+        if "conv" in module._get_name().lower():
             weight, bias = module.parameters()
             weight_dev = weight.device
             weight.data = torch.from_numpy(initial_state_dict["features"]["weight"][m].cpu().numpy() * mask_temp["features"][m]).to(weight_dev)
@@ -255,7 +259,7 @@ def original_initialization(mask_temp, initial_state_dict):
         if isinstance(m, nn.Sequential):
             continue
         module = model.classifier._modules[m]
-        if "linear" in module._get_name():
+        if "linear" in module._get_name().lower():
             weight, bias = module.parameters()
             weight_dev = weight.device
             weight.data = torch.from_numpy(initial_state_dict["classifier"]["weight"][m].cpu().numpy() * mask_temp["classifier"][m]).to(weight_dev)
@@ -297,7 +301,7 @@ def target_activations(model, target, ganin, alpha):
 def test(model, source, target, batch_size, criterion, alpha, ganin):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.eval()
+    model.model.eval()
     test_source_loss, test_target_loss, correct_source, correct_target = 0, 0, 0, 0
     with torch.no_grad():
         source_iter, target_iter = iter(source), iter(target)
@@ -322,13 +326,13 @@ def test(model, source, target, batch_size, criterion, alpha, ganin):
 
 def get_initial_state(model):
 
-    initial_state = {"features":{"weight":dict(),"classifier":dict()},"classifier":{"weight":dict(),"classifier":dict()}}
+    initial_state = {"features":{"weight":dict(),"bias":dict()},"classifier":{"weight":dict(),"bias":dict()}}
 
     for m in model.features._modules.keys():
         if isinstance(m, nn.Sequential):
             continue
         module = model.features._modules[m]
-        if "conv" in module._get_name():
+        if "conv" in module._get_name().lower():
             weight, bias = module.parameters()
             initial_state["features"]["weight"][m] = weight.data
             initial_state["features"]["bias"][m] = bias.data
@@ -336,7 +340,7 @@ def get_initial_state(model):
         if isinstance(m, nn.Sequential):
             continue
         module = model.classifier._modules[m]
-        if "linear" in module._get_name():
+        if "linear" in module._get_name().lower():
             weight, bias = module.parameters()
             initial_state["classifier"]["weight"][m] = weight.data
             initial_state["classifier"]["bias"][m] = bias.data

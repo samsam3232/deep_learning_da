@@ -18,7 +18,7 @@ class VggGetter(nn.Module):
         if ganin_da:
             self.model.domain_classifier = ganinDann.DomainClassifier().get_discriminator()
             self.ganin = True
-        self.model = self.init_weights(pretrained, freeze_all, count_stp=STOPS_INITS[size])
+        self.init_weights(pretrained, freeze_all, count_stp=STOPS_INITS[size])
 
     def freeze_weights(self, freeze_all = True, stop = 21):
 
@@ -46,7 +46,7 @@ class VggGetter(nn.Module):
             count = 1
             for m in self.model.features.modules():
                 if isinstance(m, nn.Conv2d):
-                    if (not freeze_all) and (count < count_stp):
+                    if (pretrained) and (count < count_stp):
                         count += 1
                         continue
                     nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')

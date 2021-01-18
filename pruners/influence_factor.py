@@ -19,25 +19,35 @@ import copy
 
 class IFPruner():
     
-    def __init__(self, masks, device = "cuda", prune_features = True, prune_classifier=False, percent = 20):
-        self.masks = masks.to(device)
+    def __init__(self, masks, device = "cuda", prune_features = True, prune_classifier=False, percent = 20, batch_size = 64):
+        self.masks = masks
+        for key in self.masks:
+            for s_key in self.masks[key]:
+                self.masks[key][s_key].to(device)
         self.device = device
         self.percent = percent
         self.prune_features = prune_features
         self.prune_classifier = prune_classifier
-        self.IFFeaturesPruner = IFFeaturesPruner(self.masks, self.percent)
+        self.batch_size = batch_size
+        self.IFFeaturesPruner = IFFeaturesPruner(self.masks, self.batch_size, self.percent, self.device)
 
     def next_masks(self, percent, activations, model, prune_other = False):
 
         if self.prune_features:
             self.IFFeaturesPruner.prune_by_perc(percent, activations, model, prune_other)
-            self.masks = self.IFFeaturesPruner.masks.to(self.device)
+            self.masks = self.IFFeaturesPruner.masks
+            for key in self.masks:
+                for s_key in self.masks[key]:
+                    self.masks[key][s_key].to(self.device)
 
 
 class IFFeaturesPruner():
 
     def __init__(self, masks, batch_size, percent = 20, device = "cuda"):
-        self.masks = masks.to(device)
+        self.masks = masks
+        for key in self.masks:
+            for s_key in self.masks[key]:
+                self.masks[key][s_key].to(device)
         self.percent = percent
         self.device = device
         self.batch_size = batch_size
