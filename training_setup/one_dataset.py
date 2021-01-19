@@ -108,8 +108,8 @@ def train(args, ITE = 0):
                     best_accuracy_target = accuracy_target
 
                 # Training
-            loss, activations_source = train_iter(vggGetter.model, train_loader, args.ganin, optimizer, criterion, args.alpha)
-            activations_target = target_activations(vggGetter.model, train_target, args.ganin, args.alpha)
+            loss, activations_source = train_iter(vggGetter, train_loader, args.ganin, optimizer, criterion, args.alpha)
+            activations_target = target_activations(vggGetter, train_target, args.ganin, args.alpha)
             activations = (activations_source, activations_target)
             all_loss[iter_] = loss
             all_accuracy[iter_] = (0.4 * accuracy_source + 0.6 * accuracy_target)

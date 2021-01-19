@@ -67,7 +67,7 @@ class VggGetter(nn.Module):
                 if "conv" in module._get_name().lower():
                     activations_features[m] = [feats, feats_curr]
             feats = feats_curr
-        feats = feats.view(-1, 4096)
+        feats = feats.view(-1, 25088)
         if ganin:
             reversed_feats = ReverseLayerF.apply(feats, alpha)
             domain_pred = self.model.domain_classifier(reversed_feats)
