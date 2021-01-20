@@ -38,8 +38,7 @@ def train(args, ITE = 0):
     global vggGetter
     global masks
 
-    vggGetter = MODELS[args.model](size = args.size, pretrained = args.pretrained, freeze_all = args.freeze_all, ganin_da = args.ganin)
-    vggGetter.model.to(device)
+    vggGetter = MODELS[args.model](size = args.size, device = device, pretrained = args.pretrained, freeze_all = args.freeze_all, ganin_da = args.ganin)
 
     initial_state_dict = copy.deepcopy(get_initial_state(vggGetter.model))
     utils.checkdir(f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/")

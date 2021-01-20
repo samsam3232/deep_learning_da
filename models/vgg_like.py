@@ -9,14 +9,15 @@ STOPS_INITS = {16: 11, 19: 13}
 
 class VggGetter(nn.Module):
 
-    def __init__(self, size = 16, pretrained = False, freeze_all = True, ganin_da = False):
+    def __init__(self, size = 16, device = "cuda", pretrained = False, freeze_all = True, ganin_da = False):
         super().__init__()
         self.ganin = False
-        self.model = VGG_SIZES[size](pretrained=pretrained)
+        self.device = device
+        self.model = VGG_SIZES[size](pretrained=pretrained).to(self.device)
         if pretrained:
             self.model = self.freeze_features(freeze_all, STOPS[size])
         if ganin_da:
-            self.model.domain_classifier = ganinDann.DomainClassifier().get_discriminator()
+            self.model.domain_classifier = ganinDann.DomainClassifier(self.device).get_discriminator()
             self.ganin = True
         self.init_weights(pretrained, freeze_all, count_stp=STOPS_INITS[size])
 
@@ -56,6 +57,7 @@ class VggGetter(nn.Module):
 
     def forward(self, input, alpha, ganin=False, keep_feature=True, keep_classifier=False):
 
+        input.to(self.device)
         activations_features, activations_classifier, domain_pred = dict(), dict(), None
         feats = input
         for m in self.model.features._modules.keys():
