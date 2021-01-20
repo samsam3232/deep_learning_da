@@ -23,26 +23,30 @@ os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 # Plotting Style
 sns.set_style('darkgrid')
 
-MODELS = {"vgg" : models.vgg_like.VggGetter}
+MODELS = {"vgg": models.vgg_like.VggGetter}
 
 
-def train(args, ITE = 0):
-
+def train(args, ITE=0):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(device)
+    print("Hey \n \n")
     reinit = True if args.pt == "reinit" else False
 
     date = datetime.now().strftime('%d_%m_%Y_%H:%M:%S').replace(' ', '_')
-    train_loader, train_target, val_source, val_target = data_utils.get_data(args.ds, args.source, args.target, args.data_dir,
-                                                                args.batch_size, "full_opt")
+    train_loader, train_target, val_source, val_target = data_utils.get_data(args.ds, args.source, args.target,
+                                                                             args.data_dir,
+                                                                             args.batch_size, "full_opt")
 
     global vggGetter
     global masks
 
-    vggGetter = MODELS[args.model](size = args.size, device = device, pretrained = args.pretrained, freeze_all = args.freeze_all, ganin_da = args.ganin)
+    vggGetter = MODELS[args.model](size=args.size, device=device, pretrained=args.pretrained,
+                                   freeze_all=args.freeze_all, ganin_da=args.ganin)
 
     initial_state_dict = copy.deepcopy(get_initial_state(vggGetter.model))
     utils.checkdir(f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/")
-    torch.save(vggGetter.model, f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}.pth.tar")
+    torch.save(vggGetter.model,
+               f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}.pth.tar")
 
     masks = get_masks(vggGetter.model)
 
@@ -51,14 +55,16 @@ def train(args, ITE = 0):
 
     ITERATION = args.prune_iterations
     end_iter = args.end_iter
-    best_accuracy, best_accuracy_source, best_accuracy_target, comp, bestacc,bestacc_source, bestacc_target, all_loss, all_accuracy, all_accuracy_source, all_accuracy_target = training_utils.init_lists(ITERATION, end_iter)
+    best_accuracy, best_accuracy_source, best_accuracy_target, comp, bestacc, bestacc_source, bestacc_target, all_loss, all_accuracy, all_accuracy_source, all_accuracy_target = training_utils.init_lists(
+        ITERATION, end_iter)
 
     pruner = if_pruner.IFPruner(masks=masks, device=device, prune_features=args.prune_features, prune_classifier=
-                                args.prune_classifier, percent=args.prune_percent)
+    args.prune_classifier, percent=args.prune_percent)
 
     for _ite in range(args.start_iter, ITERATION):
         if _ite != 0 and (((_ite - args.start_iter) % args.iter_to_prune) == 0) and not args.lotter:
-            vggGetter.model = pruner.IFFeaturesPruner.prune_by_perc(args.prune_percent, activations, vggGetter.model, args.cl)
+            vggGetter.model = pruner.IFFeaturesPruner.prune_by_perc(args.prune_percent, activations, vggGetter.model,
+                                                                    args.cl)
             if reinit:
                 vggGetter.init_weights(args.pretrained, args.freeze_all)
                 for m in model.features._modules.keys():
@@ -76,7 +82,8 @@ def train(args, ITE = 0):
                     if "linear" in module._get_name():
                         weight, _ = module.parameters()
                         weight_dev = weight.device
-                        weight.data = torch.from_numpy(weight.data.cpu().numpy() * masks["classifier"][m]).to(weight_dev)
+                        weight.data = torch.from_numpy(weight.data.cpu().numpy() * masks["classifier"][m]).to(
+                            weight_dev)
             else:
                 original_initialization(masks, initial_state_dict)
             optimizer = optim.Adam(vggGetter.model.parameters(), weight_decay=10 ** (-3))
@@ -87,18 +94,19 @@ def train(args, ITE = 0):
         comp1 = utils.print_nonzeros(vggGetter.model)
         comp[_ite] = comp1
         pbar = tqdm(range(args.end_iter))
-        
+
         for iter_ in pbar:
             # Frequency for Testing
             if iter_ % args.valid_freq == 0:
-                accuracy_source, accuracy_target = test(vggGetter, val_source, val_target, args.batch_size, criterion, args.alpha, args.ganin)
+                accuracy_source, accuracy_target = test(vggGetter, val_source, val_target, args.batch_size, criterion,
+                                                        args.alpha, args.ganin)
 
-                    # Save Weights
+                # Save Weights
                 if (0.4 * accuracy_source + 0.6 * accuracy_target) > best_accuracy:
                     best_accuracy = (0.4 * accuracy_source + 0.6 * accuracy_target)
                     utils.checkdir(f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/")
                     torch.save(vggGetter.model,
-                                   f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}_{_ite}.pth.tar")
+                               f"{args.data_dir}/saves/{args.model}/{date}/{args.ds}/initial_state_dict_{args.pt}_{_ite}.pth.tar")
 
                 if accuracy_source > best_accuracy_source:
                     best_accuracy_source = accuracy_source
@@ -115,12 +123,12 @@ def train(args, ITE = 0):
             all_accuracy_source[iter_] = accuracy_source
             all_accuracy_target[iter_] = accuracy_target
 
-                # Frequency for Printing Accuracy and Loss
+            # Frequency for Printing Accuracy and Loss
             if iter_ % args.print_freq == 0:
                 pbar.set_description(
-                        f'Train Epoch: {iter_}/{args.end_iter} Loss: {loss:.6f} Accuracy: {(0.4 * accuracy_source + 0.6 * accuracy_target):.2f}% Best Accuracy: {best_accuracy:.2f}%'
-                        f'Source_accuracy: {accuracy_source:.2f}% Best Accuracy: {best_accuracy_source:.2f}%'
-                        f'Source_accuracy: {accuracy_target:.2f}% Best Accuracy: {best_accuracy_target:.2f}%')
+                    f'Train Epoch: {iter_}/{args.end_iter} Loss: {loss:.6f} Accuracy: {(0.4 * accuracy_source + 0.6 * accuracy_target):.2f}% Best Accuracy: {best_accuracy:.2f}%'
+                    f'Source_accuracy: {accuracy_source:.2f}% Best Accuracy: {best_accuracy_source:.2f}%'
+                    f'Source_accuracy: {accuracy_target:.2f}% Best Accuracy: {best_accuracy_target:.2f}%')
 
         bestacc[_ite] = best_accuracy
         bestacc_source[_ite] = best_accuracy_source
@@ -142,7 +150,6 @@ def train(args, ITE = 0):
             f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/{args.pt}_LossVsAccuracy_{comp1}_{_ite}.png",
             dpi=1200)
         plt.close()
-
 
         plt.plot(np.arange(1, (args.end_iter) + 1), all_accuracy_source, c="blue", label="Source accuracy")
         plt.plot(np.arange(1, (args.end_iter) + 1), all_accuracy_target, c="red", label="Target_accuracy")
@@ -169,7 +176,8 @@ def train(args, ITE = 0):
 
         # Dumping mask
         utils.checkdir(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/")
-        with open(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_mask_{comp1}_{_ite}.pkl",'wb') as fp:
+        with open(f"{args.data_dir}/dumps/lt/{args.model}/{date}/{args.ds}/{args.pt}_mask_{comp1}_{_ite}.pkl",
+                  'wb') as fp:
             pickle.dump(masks, fp)
 
         # Making variables into 0
@@ -201,7 +209,7 @@ def train(args, ITE = 0):
     plt.legend()
     plt.grid(color="gray")
     utils.checkdir(f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/")
-    plt.savefig(f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/{args.pt}_AccuraciesVsWeights.png",dpi=1200)
+    plt.savefig(f"{args.data_dir}/plots/lt/{args.model}/{date}/{args.ds}/{args.pt}_AccuraciesVsWeights.png", dpi=1200)
     plt.close()
 
 
@@ -220,10 +228,9 @@ def weight_init(m):
         nn.init.normal_(m.bias.data)
 
 
-
 def get_masks(model):
     global step
-    masks = defaultdict(lambda: defaultdict(lambda : 0))
+    masks = defaultdict(lambda: defaultdict(lambda: 0))
 
     for m in model.features._modules.keys():
         if isinstance(m, nn.Sequential):
@@ -242,6 +249,7 @@ def get_masks(model):
 
     return masks
 
+
 def original_initialization(mask_temp, initial_state_dict):
     global model
 
@@ -252,7 +260,8 @@ def original_initialization(mask_temp, initial_state_dict):
         if "conv" in module._get_name().lower():
             weight, bias = module.parameters()
             weight_dev = weight.device
-            weight.data = torch.from_numpy(initial_state_dict["features"]["weight"][m].cpu().numpy() * mask_temp["features"][m]).to(weight_dev)
+            weight.data = torch.from_numpy(
+                initial_state_dict["features"]["weight"][m].cpu().numpy() * mask_temp["features"][m]).to(weight_dev)
             bias.data = initial_state_dict["features"]["bias"][m]
     for m in model.classifier._modules.keys():
         if isinstance(m, nn.Sequential):
@@ -261,11 +270,12 @@ def original_initialization(mask_temp, initial_state_dict):
         if "linear" in module._get_name().lower():
             weight, bias = module.parameters()
             weight_dev = weight.device
-            weight.data = torch.from_numpy(initial_state_dict["classifier"]["weight"][m].cpu().numpy() * mask_temp["classifier"][m]).to(weight_dev)
+            weight.data = torch.from_numpy(
+                initial_state_dict["classifier"]["weight"][m].cpu().numpy() * mask_temp["classifier"][m]).to(weight_dev)
             bias.data = initial_state_dict["classifier"]["bias"][m]
 
-def train_iter(model, source, ganin, optimizer, criterion, alpha):
 
+def train_iter(model, source, ganin, optimizer, criterion, alpha):
     EPS = 1e-6
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.train()
@@ -288,17 +298,17 @@ def train_iter(model, source, ganin, optimizer, criterion, alpha):
 
     return loss.item(), activations_source
 
-def target_activations(model, target, ganin, alpha):
 
+def target_activations(model, target, ganin, alpha):
     target_iter = iter(target)
     imgs, _ = target_iter.next()
     imgs.to(model.device)
     _, _, _, activations_target = model(imgs, alpha, ganin, True, False)
     return activations_target
 
+
 # Function for Testing
 def test(model, source, target, batch_size, criterion, alpha, ganin):
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.model.eval()
     test_source_loss, test_target_loss, correct_source, correct_target = 0, 0, 0, 0
@@ -323,9 +333,9 @@ def test(model, source, target, batch_size, criterion, alpha, ganin):
         accuracy_target = 100. * correct_target / (min(len(source_iter), len(target_iter)) * batch_size)
     return accuracy_source, accuracy_target
 
-def get_initial_state(model):
 
-    initial_state = {"features":{"weight":dict(),"bias":dict()},"classifier":{"weight":dict(),"bias":dict()}}
+def get_initial_state(model):
+    initial_state = {"features": {"weight": dict(), "bias": dict()}, "classifier": {"weight": dict(), "bias": dict()}}
 
     for m in model.features._modules.keys():
         if isinstance(m, nn.Sequential):
