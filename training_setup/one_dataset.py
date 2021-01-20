@@ -291,7 +291,7 @@ def train_iter(model, source, ganin, optimizer, criterion, alpha):
 
 def target_activations(model, target, ganin, alpha):
 
-    target_iter = target.iter()
+    target_iter = iter(target)
     imgs, _ = target_iter.next()
     imgs.to(model.device)
     _, _, _, activations_target = model(imgs, alpha, ganin, True, False)
